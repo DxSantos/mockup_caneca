@@ -1,6 +1,24 @@
 let scene, camera, renderer, controls;
-let mugMaterials = [];
-let paperMaterials = []; // Guarda as folhas para aplicar a textura
+let mugMaterials = [];       // Guarda todas as partes de cerâmica de todas as canecas
+let paperMaterials = [];     // Guarda os papéis no chão
+let mainLight;
+
+// Valores Padrão da Imagem de Referência (Porcelana)
+const materialSettings = {
+    reflectivity: 0.7, // Intensidade do brilho especular (0.0 a 2.0)
+    roughness: 0.0,    // Rugosidade da superfície (0.0 a 1.0)
+    metalness: 0.0,    // Quantidade de metalicidade (0.0 a 1.0)
+    opacity: 1.0       // Transparência (0.0 a 1.0)
+};
+
+// Guarda as cores atuais selecionadas para cada parte
+const partColors = {
+    handle: '#ffffff',
+    interior: '#ffffff',
+    body: '#ffffff',
+    bottom: '#ffffff',
+    rim: '#ffffff'
+};
 
 function init3D() {
     const container = document.getElementById('canvas-container');
@@ -16,7 +34,11 @@ function init3D() {
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.outputEncoding = THREE.sRGBEncoding;
+
+    // Habilita gerenciamento de cores e contraste cinematográfico (Pretos profundos)
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
     container.appendChild(renderer.domElement);
 
     // 2. Controles de Órbita 360°
@@ -25,11 +47,11 @@ function init3D() {
     controls.dampingFactor = 0.05;
     controls.target.set(0, -0.2, 0);
 
-    // 3. Iluminação de Estúdio
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    // 3. Iluminação de Estúdio Ajustada
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
     scene.add(ambientLight);
 
-    const mainLight = new THREE.DirectionalLight(0xffffff, 0.85);
+    mainLight = new THREE.DirectionalLight(0xffffff, materialSettings.reflectivity);
     mainLight.position.set(8, 20, 12);
     mainLight.castShadow = true;
     mainLight.shadow.mapSize.width = 2048;
@@ -37,36 +59,137 @@ function init3D() {
     mainLight.shadow.bias = -0.0001;
     scene.add(mainLight);
 
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.35);
     fillLight.position.set(-10, 12, -8);
     scene.add(fillLight);
 
     // 4. Mesa de Madeira
     createWoodenTable();
 
-    // 5. Papéis/Moldes da Arte Cruzados no Chão (270mm x 100mm)
+    // 5. Papéis/Moldes da Arte Cruzados no Chão
     createArtworkPapers();
 
     // 6. Instanciar as 3 Canecas (Esquerda, Centro, Direita)
-    createMugGroup(-4.2, 0, -2, 0);                 // Esquerda (Alça na esquerda)
-    createMugGroup(0, 0, -4, -Math.PI / 2);          // Centro (Frente lisa)
-    createMugGroup(4.2, 0, -2, Math.PI);             // Direita (Alça na direita)
+    createMugGroup(-4.2, 0, -2, 0);                 // Esquerda
+    createMugGroup(0, 0, -4, -Math.PI / 2);          // Centro
+    createMugGroup(4.2, 0, -2, Math.PI);             // Direita
+
+    // 7. Inicializar ouvintes dos Controles
+    setupMaterialControls();
+    setupColorControls();
 
     window.addEventListener('resize', onWindowResize);
     animate();
 }
 
 /**
- * Cria os dois papéis empilhados e cruzados no chão (estilo Rapid Mockup)
+ * Registra os ouvintes para alteração dinâmica de cores por parte
+ */
+function setupColorControls() {
+    const bindColor = (id, key, meshName) => {
+        const input = document.getElementById(id);
+        if (input) {
+            input.addEventListener('input', (e) => {
+                const newColor = e.target.value;
+                partColors[key] = newColor;
+
+                mugMaterials.forEach(mesh => {
+                    if (mesh.name === meshName) {
+                        mesh.material.color.setStyle(newColor);
+                        mesh.material.needsUpdate = true;
+                    }
+                });
+            });
+        }
+    };
+
+    bindColor('colorHandle', 'handle', 'handleMesh');
+    bindColor('colorInterior', 'interior', 'innerBody');
+    bindColor('colorInterior', 'interior', 'innerBottom');
+    bindColor('colorBody', 'body', 'outerBody');
+    bindColor('colorBottom', 'bottom', 'bottomBase');
+    bindColor('colorRim', 'rim', 'rimMesh');
+}
+
+/**
+ * Registra os ouvintes de eventos para alterar as propriedades materiais em tempo real
+ */
+function setupMaterialControls() {
+    const inputReflectivity = document.getElementById('inputReflectivity');
+    const inputRoughness = document.getElementById('inputRoughness');
+    const inputMetalness = document.getElementById('inputMetalness');
+    const inputOpacity = document.getElementById('inputOpacity');
+
+    if (inputReflectivity) {
+        inputReflectivity.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            document.getElementById('valReflectivity').innerText = val;
+            materialSettings.reflectivity = val;
+            
+            if (mainLight) {
+                mainLight.intensity = 0.2 + (val * 0.65);
+            }
+            
+            updateAllMaterials();
+        });
+    }
+
+    if (inputRoughness) {
+        inputRoughness.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            document.getElementById('valRoughness').innerText = val;
+            materialSettings.roughness = val;
+            updateAllMaterials();
+        });
+    }
+
+    if (inputMetalness) {
+        inputMetalness.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            document.getElementById('valMetalness').innerText = val;
+            materialSettings.metalness = val;
+            updateAllMaterials();
+        });
+    }
+
+    if (inputOpacity) {
+        inputOpacity.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            document.getElementById('valOpacity').innerText = val;
+            materialSettings.opacity = val;
+            updateAllMaterials();
+        });
+    }
+}
+
+/**
+ * Atualiza o brilho, especularidade e resposta à luz mantendo as cores selecionadas
+ */
+function updateAllMaterials() {
+    const val = materialSettings.reflectivity;
+
+    mugMaterials.forEach((mesh) => {
+        if (mesh && mesh.material) {
+            const calculatedRoughness = Math.max(0, Math.min(1, (1 - val) + materialSettings.roughness));
+            mesh.material.roughness = calculatedRoughness;
+            mesh.material.metalness = materialSettings.metalness;
+            mesh.material.opacity = materialSettings.opacity;
+            mesh.material.transparent = materialSettings.opacity < 1.0;
+            mesh.material.needsUpdate = true;
+        }
+    });
+}
+
+/**
+ * Cria os dois papéis empilhados no chão
  */
 function createArtworkPapers() {
-    paperMaterials = []; // Reseta a lista
+    paperMaterials = [];
     
-    const paperWidth = 10.8; // Proporção 270mm
-    const paperHeight = 4.0; // Proporção 100mm
+    const paperWidth = 10.8;
+    const paperHeight = 4.0;
     const paperGeo = new THREE.PlaneGeometry(paperWidth, paperHeight);
 
-    // 1. Folha de Baixo (Levemente inclinada para a esquerda)
     const paperMat1 = new THREE.MeshStandardMaterial({
         color: 0xffffff,
         roughness: 0.6,
@@ -74,14 +197,13 @@ function createArtworkPapers() {
     });
     const paperMesh1 = new THREE.Mesh(paperGeo, paperMat1);
     paperMesh1.rotation.x = -Math.PI / 2;
-    paperMesh1.rotation.z = 0.08; // Rotação para cruzar
-    paperMesh1.position.set(-0.3, -2.23, 2.7); // Altura logo acima da mesa
+    paperMesh1.rotation.z = 0.08;
+    paperMesh1.position.set(-0.3, -2.23, 2.7);
     paperMesh1.receiveShadow = true;
     paperMesh1.castShadow = true;
     scene.add(paperMesh1);
     paperMaterials.push(paperMat1);
 
-    // 2. Folha de Cima (Levemente inclinada para a direita e um pouco mais alta)
     const paperMat2 = new THREE.MeshStandardMaterial({
         color: 0xffffff,
         roughness: 0.6,
@@ -89,8 +211,8 @@ function createArtworkPapers() {
     });
     const paperMesh2 = new THREE.Mesh(paperGeo, paperMat2);
     paperMesh2.rotation.x = -Math.PI / 2;
-    paperMesh2.rotation.z = -0.06; // Rotação oposta
-    paperMesh2.position.set(0.3, -2.21, 2.5); // Ligeiramente acima da primeira folha
+    paperMesh2.rotation.z = -0.06;
+    paperMesh2.position.set(0.3, -2.21, 2.5);
     paperMesh2.receiveShadow = true;
     paperMesh2.castShadow = true;
     scene.add(paperMesh2);
@@ -136,59 +258,83 @@ function createWoodenTable() {
 }
 
 /**
- * Constrói a Caneca em 3D
+ * Constrói a Caneca em 3D Realista
  */
 function createMugGroup(x, y, z, rotationY) {
     const group = new THREE.Group();
 
-    const ceramicMaterial = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        roughness: 0.12,
-        metalness: 0.05,
+    const createCeramicMat = (colorHex) => new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color(colorHex || 0xffffff),
+        roughness: 0.1,
+        metalness: 0.0,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.1,
+        reflectivity: 0.9,
         side: THREE.DoubleSide
     });
 
-    // Corpo
-    const outerGeo = new THREE.CylinderGeometry(2, 2, 4.5, 64, 1, true);
-    const outerMesh = new THREE.Mesh(outerGeo, ceramicMaterial.clone());
+    // 1. Corpo Externo da Caneca
+    const outerGeo = new THREE.CylinderGeometry(2.0, 2.0, 4.5, 64, 1, true);
+    const outerMesh = new THREE.Mesh(outerGeo, createCeramicMat(partColors.body));
+    outerMesh.name = 'outerBody';
     outerMesh.castShadow = true;
     outerMesh.receiveShadow = true;
     group.add(outerMesh);
-
     mugMaterials.push(outerMesh);
 
-    // Interior
+    // 2. Fundo Inferior Externo
+    const bottomBaseGeo = new THREE.CircleGeometry(2.0, 64);
+    const bottomBaseMesh = new THREE.Mesh(bottomBaseGeo, createCeramicMat(partColors.bottom));
+    bottomBaseMesh.name = 'bottomBase';
+    bottomBaseMesh.rotation.x = Math.PI / 2;
+    bottomBaseMesh.position.y = -2.25;
+    bottomBaseMesh.receiveShadow = true;
+    group.add(bottomBaseMesh);
+    mugMaterials.push(bottomBaseMesh);
+
+    // 3. Interior da Caneca
     const innerGeo = new THREE.CylinderGeometry(1.85, 1.85, 4.35, 64, 1, true);
-    const innerMesh = new THREE.Mesh(innerGeo, ceramicMaterial);
+    const innerMesh = new THREE.Mesh(innerGeo, createCeramicMat(partColors.interior));
+    innerMesh.name = 'innerBody';
     innerMesh.position.y = 0.08;
     group.add(innerMesh);
+    mugMaterials.push(innerMesh);
 
-    // Fundo Interno
+    // 4. Fundo Interno da Cavidade
     const innerBottomGeo = new THREE.CircleGeometry(1.85, 64);
-    const innerBottomMesh = new THREE.Mesh(innerBottomGeo, ceramicMaterial);
+    const innerBottomMesh = new THREE.Mesh(innerBottomGeo, createCeramicMat(partColors.interior));
+    innerBottomMesh.name = 'innerBottom';
     innerBottomMesh.rotation.x = -Math.PI / 2;
     innerBottomMesh.position.y = -2.1;
     group.add(innerBottomMesh);
+    mugMaterials.push(innerBottomMesh);
 
-    // Borda Superior
+    // 5. Borda Superior Curvada
     const rimGeo = new THREE.TorusGeometry(1.925, 0.075, 16, 64);
-    const rimMesh = new THREE.Mesh(rimGeo, ceramicMaterial);
+    const rimMesh = new THREE.Mesh(rimGeo, createCeramicMat(partColors.rim));
+    rimMesh.name = 'rimMesh';
     rimMesh.rotation.x = Math.PI / 2;
     rimMesh.position.y = 2.25;
     group.add(rimMesh);
+    mugMaterials.push(rimMesh);
 
-    // Alça Anatômica
+    // 6. Alça de Cerâmica Anatômica
     const handleCurve = new THREE.CubicBezierCurve3(
-        new THREE.Vector3(-1.95, 1.45, 0),
-        new THREE.Vector3(-4.00, 1.65, 0),
-        new THREE.Vector3(-4.00, -1.65, 0),
-        new THREE.Vector3(-1.95, -1.45, 0)
+        new THREE.Vector3(-1.95, 1.60, 0),
+        new THREE.Vector3(-3.85, 1.90, 0),
+        new THREE.Vector3(-3.85, -1.90, 0),
+        new THREE.Vector3(-1.95, -1.60, 0)
     );
-    const handleGeo = new THREE.TubeGeometry(handleCurve, 48, 0.28, 16, false);
-    const handleMesh = new THREE.Mesh(handleGeo, ceramicMaterial);
+
+    const handleGeo = new THREE.TubeGeometry(handleCurve, 64, 0.2, 20, false);
+    handleGeo.scale(1.0, 1.0, 1.90);
+
+    const handleMesh = new THREE.Mesh(handleGeo, createCeramicMat(partColors.handle));
+    handleMesh.name = 'handleMesh';
     handleMesh.castShadow = true;
     handleMesh.receiveShadow = true;
     group.add(handleMesh);
+    mugMaterials.push(handleMesh);
 
     group.position.set(x, y, z);
     group.rotation.y = rotationY;
@@ -198,31 +344,36 @@ function createMugGroup(x, y, z, rotationY) {
 }
 
 /**
- * Aplica e Ajusta a Estampa na Caneca e nos Papéis
+ * Aplica e Ajusta a Estampa na parede externa e opcionalmente na alça (60x10 mm)
  */
-function updateMugTexture(imageUrl) {
+function updateMugTexture(imageUrl, handleImageUrl) {
+    // Garante que o renderizador já existe antes de ler as capacidades do WebGL
+    if (!renderer) return;
+
     const textureLoader = new THREE.TextureLoader();
+
     textureLoader.load(imageUrl, (texture) => {
         texture.wrapS = THREE.RepeatWrapping;
         texture.wrapT = THREE.ClampToEdgeWrapping;
+        texture.colorSpace = THREE.SRGBColorSpace;
 
-        // Textura Envelopada para as Canecas
+        if (renderer && renderer.capabilities) {
+            texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        }
+
         const mugTexture = texture.clone();
         mugTexture.offset.x = 0.25;
-        mugTexture.repeat.x = 1;
+        mugTexture.repeat.set(1, 1);
         mugTexture.needsUpdate = true;
 
         mugMaterials.forEach((mesh) => {
-            mesh.material = new THREE.MeshStandardMaterial({
-                map: mugTexture,
-                roughness: 0.12,
-                metalness: 0.05,
-                side: THREE.DoubleSide
-            });
-            mesh.material.needsUpdate = true;
+            if (mesh.name === 'outerBody') {
+                mesh.material.map = mugTexture;
+                mesh.material.side = THREE.FrontSide;
+                mesh.material.needsUpdate = true;
+            }
         });
 
-        // Textura Plana Direta para os Papéis no Chão
         paperMaterials.forEach((paperMat) => {
             const paperTex = texture.clone();
             paperTex.offset.set(0, 0);
@@ -230,10 +381,30 @@ function updateMugTexture(imageUrl) {
             paperTex.needsUpdate = true;
 
             paperMat.map = paperTex;
-            paperMat.color.setHex(0xffffff); // Garante que não fique escuro/azul
+            paperMat.color.setHex(0xffffff);
             paperMat.needsUpdate = true;
         });
     });
+
+    if (handleImageUrl) {
+        textureLoader.load(handleImageUrl, (handleTexture) => {
+            handleTexture.wrapS = THREE.ClampToEdgeWrapping;
+            handleTexture.wrapT = THREE.ClampToEdgeWrapping;
+            handleTexture.colorSpace = THREE.SRGBColorSpace;
+            
+            handleTexture.rotation = 0;
+            handleTexture.repeat.set(1.5, 4.6);
+            handleTexture.offset.set(-0.25, -3);
+            handleTexture.needsUpdate = true;
+
+            mugMaterials.forEach((mesh) => {
+                if (mesh.name === 'handleMesh') {
+                    mesh.material.map = handleTexture;
+                    mesh.material.needsUpdate = true;
+                }
+            });
+        });
+    }
 }
 
 function animate() {
@@ -249,36 +420,51 @@ function onWindowResize() {
     renderer.setSize(container.clientWidth, container.clientHeight);
 }
 
-// Upload via REST API
-document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = document.getElementById('btnSubmit');
-    btn.disabled = true;
-    btn.innerText = 'Processando Arte...';
-
-    const formData = new FormData();
-    formData.append('title', document.getElementById('title').value);
-    formData.append('image', document.getElementById('image').files[0]);
-
-    try {
-        const response = await fetch('/api/artworks/upload', {
-            method: 'POST',
-            body: formData
-        });
-
-        const result = await response.json();
-        if (result.success) {
-            updateMugTexture(result.data.image_url);
-        } else {
-            alert('Erro ao enviar imagem.');
+// Upload via REST API (Garantido para funcionar tanto na página principal quanto no modo de teste)
+const uploadForm = document.getElementById('uploadForm');
+if (uploadForm) {
+    uploadForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('btnSubmit');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = 'Processando Arte...';
         }
-    } catch (err) {
-        console.error(err);
-        alert('Erro ao processar imagem.');
-    } finally {
-        btn.disabled = false;
-        btn.innerText = 'Gerar Mockup 3D';
-    }
-});
+
+        const formData = new FormData();
+        const titleInput = document.getElementById('title');
+        const imageInput = document.getElementById('image');
+        
+        if (titleInput) formData.append('title', titleInput.value);
+        if (imageInput && imageInput.files[0]) formData.append('image', imageInput.files[0]);
+
+        const handleInput = document.getElementById('handle_image');
+        if (handleInput && handleInput.files[0]) {
+            formData.append('handle_image', handleInput.files[0]);
+        }
+
+        try {
+            const response = await fetch('/api/artworks/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                updateMugTexture(result.data.image_url, result.data.handle_image_url);
+            } else {
+                alert('Erro ao enviar imagem.');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Erro ao processar imagem.');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerText = 'Gerar Mockup 3D';
+            }
+        }
+    });
+}
 
 window.onload = init3D;
